@@ -1,6 +1,6 @@
 module fibraclick-upload-server
 
-go 1.17
+go 1.16
 
 require (
 	github.com/davidbyttow/govips/v2 v2.7.0
