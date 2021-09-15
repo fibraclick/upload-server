@@ -6,6 +6,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"github.com/davidbyttow/govips/v2/vips"
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
@@ -28,7 +29,9 @@ var signatureSecret = os.Getenv("SIGNATURE_SECRET")
 var port = os.Getenv("PORT")
 
 func main() {
-	vips.Startup(nil)
+	initLogger()
+
+	initVips()
 	defer vips.Shutdown()
 
 	initMinioClient()
@@ -36,18 +39,47 @@ func main() {
 	r := createRouter()
 	http.Handle("/", r)
 
+	log.Infof("Listening on port %s", port)
+
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Panicln(err)
 	}
 }
 
+func initVips() {
+	vips.LoggingSettings(func(messageDomain string, messageLevel vips.LogLevel, message string) {
+		msg := fmt.Sprintf("[%s] %v", messageDomain, message)
+
+		switch messageLevel {
+		case vips.LogLevelError:
+		case vips.LogLevelCritical:
+			log.Error(msg)
+		case vips.LogLevelWarning:
+			log.Warn(msg)
+		case vips.LogLevelMessage:
+		case vips.LogLevelInfo:
+			log.Info(msg)
+		case vips.LogLevelDebug:
+			log.Debug(msg)
+		}
+	}, vips.LogLevelInfo)
+
+	vips.Startup(nil)
+}
+
+func initLogger() {
+	log.SetLevel(log.DebugLevel)
+	log.SetFormatter(&log.TextFormatter{
+		FullTimestamp:          true,
+		ForceColors:            os.Getenv("ENVIRONMENT") != "production",
+		DisableLevelTruncation: true,
+	})
+}
+
 func createRouter() *mux.Router {
 	r := mux.NewRouter()
 	r.HandleFunc("/photo/{year:[0-9]{4}}/{month:[0-9]{2}}/{fileName}", uploadHandler)
-	r.Use(func(next http.Handler) http.Handler {
-		// TODO: review format and user logger
-		return handlers.CombinedLoggingHandler(os.Stdout, next)
-	})
+	r.Use(loggingMiddleware)
 	r.Use(signatureMiddleware)
 	return r
 }
@@ -65,6 +97,11 @@ func initMinioClient() {
 	if err != nil {
 		log.Panicln(err)
 	}
+}
+
+func loggingMiddleware(next http.Handler) http.Handler {
+	// TODO: simpliify output
+	return handlers.CombinedLoggingHandler(log.StandardLogger().Writer(), next)
 }
 
 func signatureMiddleware(next http.Handler) http.Handler {
