@@ -31,6 +31,28 @@ func main() {
 	vips.Startup(nil)
 	defer vips.Shutdown()
 
+	initMinioClient()
+
+	r := createRouter()
+	http.Handle("/", r)
+
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
+		log.Panicln(err)
+	}
+}
+
+func createRouter() *mux.Router {
+	r := mux.NewRouter()
+	r.HandleFunc("/photo/{year:[0-9]{4}}/{month:[0-9]{2}}/{fileName}", uploadHandler)
+	r.Use(func(next http.Handler) http.Handler {
+		// TODO: review format and user logger
+		return handlers.CombinedLoggingHandler(os.Stdout, next)
+	})
+	r.Use(signatureMiddleware)
+	return r
+}
+
+func initMinioClient() {
 	minioEndpoint := os.Getenv("MINIO_ENDPOINT")
 	minioAccessKey := os.Getenv("MINIO_ACCESS_KEY")
 	minioSecretKey := os.Getenv("MINIO_SECRET_KEY")
@@ -41,20 +63,6 @@ func main() {
 	})
 
 	if err != nil {
-		log.Panicln(err)
-	}
-
-	r := mux.NewRouter()
-	r.HandleFunc("/photo/{year:[0-9]{4}}/{month:[0-9]{2}}/{fileName}", uploadHandler)
-	r.Use(func(next http.Handler) http.Handler {
-		// TODO: review format and user logger
-		return handlers.CombinedLoggingHandler(os.Stdout, next)
-	})
-	r.Use(signatureMiddleware)
-
-	http.Handle("/", r)
-
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Panicln(err)
 	}
 }
@@ -118,21 +126,21 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := img.AutoRotate(); err != nil {
-		log.Errorf("Could not process image file: %s", err)
+		log.Errorf("Could not rotate image: %s", err)
 		http.Error(w, "", http.StatusInternalServerError)
 		return
 	}
 
 	// Basically convert the color space to sRGB
 	if err := img.OptimizeICCProfile(); err != nil {
-		log.Errorf("Could not process image file: %s", err)
+		log.Errorf("Could not optimize ICC profile: %s", err)
 		http.Error(w, "", http.StatusInternalServerError)
 		return
 	}
 
 	// Remove metadata but keep the color profile
 	if err := img.RemoveMetadata(); err != nil {
-		log.Errorf("Could not process image file: %s", err)
+		log.Errorf("Could not remove metadata: %s", err)
 		http.Error(w, "", http.StatusInternalServerError)
 		return
 	}
@@ -165,5 +173,5 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(200)
+	w.WriteHeader(http.StatusCreated)
 }
