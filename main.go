@@ -10,9 +10,12 @@ import (
 	"github.com/davidbyttow/govips/v2/vips"
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
+	"github.com/h2non/filetype"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	log "github.com/sirupsen/logrus"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"strconv"
@@ -169,11 +172,15 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 			log.Errorf("Could not get file from body: %s", err)
 			http.Error(w, "", http.StatusBadRequest)
 		}
-
 		return
 	}
 
 	defer formFile.Close()
+
+	if !isSupportedFileType(formFile) {
+		http.Error(w, "", http.StatusUnsupportedMediaType)
+		return
+	}
 
 	img, err := vips.NewImageFromReader(formFile)
 	if err != nil {
@@ -240,4 +247,13 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusCreated)
+}
+
+func isSupportedFileType(file multipart.File) bool {
+	head := make([]byte, 20)
+	file.Read(head)
+	file.Seek(0, io.SeekStart)
+
+	kind, _ := filetype.Match(head)
+	return kind.MIME.Value == "image/jpeg" || kind.MIME.Value == "image/png" || kind.MIME.Value == "image/heif"
 }
