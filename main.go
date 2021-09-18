@@ -34,13 +34,10 @@ var uploadResolutionLimitPixels int64
 var port = os.Getenv("PORT")
 
 func main() {
-	initOptions()
-
 	initLogger()
-
+	initOptions()
 	initVips()
 	defer vips.Shutdown()
-
 	initMinioClient()
 
 	r := createRouter()
@@ -57,7 +54,11 @@ func initOptions() {
 	bucketName = os.Getenv("MINIO_BUCKET_NAME")
 	signatureSecret = os.Getenv("SIGNATURE_SECRET")
 	uploadSizeLimitBytes = loadInteger("UPLOAD_LIMIT_MEGABYTES") * 1024 * 1024
-	uploadResolutionLimitPixels = loadInteger("UPLOAD_LIMIT_MEGAPIXELS")*10 ^ 6
+	uploadResolutionLimitPixels = loadInteger("UPLOAD_LIMIT_MEGAPIXELS") * 1000 * 1000
+
+	log.Infof("Bucket name: %s", bucketName)
+	log.Infof("Upload size limit bytes: %d", uploadSizeLimitBytes)
+	log.Infof("Upload resolution limit pixels: %d", uploadResolutionLimitPixels)
 }
 
 func loadInteger(key string) int64 {
@@ -166,7 +167,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	formFile, _, err := r.FormFile("file")
 	if err != nil {
 		if err.Error() == TooLargeErrorMessage {
-			log.Errorf("Uploaded file is too large")
+			log.Errorf("Uploaded file is larger than %d bytes", uploadSizeLimitBytes)
 			http.Error(w, "", http.StatusRequestEntityTooLarge)
 		} else {
 			log.Errorf("Could not get file from body: %s", err)
@@ -191,7 +192,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 
 	resolution := img.Width() * img.Height()
 	if int64(resolution) > uploadResolutionLimitPixels {
-		log.Errorf("Uploaded file exceeds resolution limit: %d", resolution)
+		log.Errorf("Uploaded file exceeds resolution limit: %d > %d", resolution, uploadResolutionLimitPixels)
 		http.Error(w, "", http.StatusRequestEntityTooLarge)
 		return
 	}
