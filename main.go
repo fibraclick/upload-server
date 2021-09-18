@@ -201,7 +201,9 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 		key,
 		reader,
 		reader.Size(),
-		minio.PutObjectOptions{},
+		minio.PutObjectOptions{
+			ContentType: "image/jpeg",
+		},
 	)
 
 	if err != nil {
