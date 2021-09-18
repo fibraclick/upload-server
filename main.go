@@ -20,15 +20,19 @@ import (
 )
 
 const TooLargeErrorMessage = "http: request body too large"
-const UploadSizeLimitMegabytes = 15
 const JpegQuality = 85
 
 var minioClient *minio.Client
-var bucketName = os.Getenv("MINIO_BUCKET_NAME")
-var signatureSecret = os.Getenv("SIGNATURE_SECRET")
+
+var bucketName string
+var signatureSecret string
+var uploadSizeLimitBytes int64
+var uploadResolutionLimitPixels int64
 var port = os.Getenv("PORT")
 
 func main() {
+	initOptions()
+
 	initLogger()
 
 	initVips()
@@ -44,6 +48,21 @@ func main() {
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Panicln(err)
 	}
+}
+
+func initOptions() {
+	bucketName = os.Getenv("MINIO_BUCKET_NAME")
+	signatureSecret = os.Getenv("SIGNATURE_SECRET")
+	uploadSizeLimitBytes = loadInteger("UPLOAD_LIMIT_MEGABYTES") * 1024 * 1024
+	uploadResolutionLimitPixels = loadInteger("UPLOAD_LIMIT_MEGAPIXELS")*10 ^ 6
+}
+
+func loadInteger(key string) int64 {
+	value, err := strconv.ParseInt(os.Getenv(key), 10, 64)
+	if err != nil {
+		log.Panicf("Could not parse env variable %s: %s", key, err)
+	}
+	return value
 }
 
 func initVips() {
@@ -100,7 +119,7 @@ func initMinioClient() {
 }
 
 func loggingMiddleware(next http.Handler) http.Handler {
-	// TODO: simpliify output
+	// TODO: simplify output
 	return handlers.CombinedLoggingHandler(log.StandardLogger().Writer(), next)
 }
 
@@ -139,11 +158,12 @@ func signatureMiddleware(next http.Handler) http.Handler {
 func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 
-	r.Body = http.MaxBytesReader(w, r.Body, UploadSizeLimitMegabytes*1024*1024)
+	r.Body = http.MaxBytesReader(w, r.Body, uploadSizeLimitBytes)
 
 	formFile, _, err := r.FormFile("file")
 	if err != nil {
 		if err.Error() == TooLargeErrorMessage {
+			log.Errorf("Uploaded file is too large")
 			http.Error(w, "", http.StatusRequestEntityTooLarge)
 		} else {
 			log.Errorf("Could not get file from body: %s", err)
@@ -159,6 +179,13 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Errorf("Could not read image file: %s", err)
 		http.Error(w, "", http.StatusInternalServerError)
+		return
+	}
+
+	resolution := img.Width() * img.Height()
+	if int64(resolution) > uploadResolutionLimitPixels {
+		log.Errorf("Uploaded file exceeds resolution limit: %d", resolution)
+		http.Error(w, "", http.StatusRequestEntityTooLarge)
 		return
 	}
 
