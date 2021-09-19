@@ -40,12 +40,9 @@ func main() {
 	defer vips.Shutdown()
 	initMinioClient()
 
-	r := createRouter()
-	http.Handle("/", r)
-
 	log.Infof("Listening on port %s", port)
 
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
+	if err := http.ListenAndServe(":"+port, createHandler()); err != nil {
 		log.Panicln(err)
 	}
 }
@@ -99,12 +96,24 @@ func initLogger() {
 	})
 }
 
-func createRouter() *mux.Router {
+func createHandler() http.Handler {
 	r := mux.NewRouter()
-	r.HandleFunc("/photo/{year:[0-9]{4}}/{month:[0-9]{2}}/{fileName}", uploadHandler)
+	r.HandleFunc("/photo/{year:[0-9]{4}}/{month:[0-9]{2}}/{fileName}", uploadHandler).Methods("PUT")
 	r.Use(loggingMiddleware)
 	r.Use(signatureMiddleware)
-	return r
+
+	var origin string
+	if os.Getenv("ENVIRONMENT") == "production" {
+		origin = "https://forum.fibra.click"
+	} else {
+		origin = "*"
+	}
+
+	return handlers.CORS(
+		handlers.AllowedMethods([]string{"PUT"}),
+		handlers.AllowedOrigins([]string{origin}),
+		handlers.MaxAge(3600),
+	)(r)
 }
 
 func initMinioClient() {
