@@ -1,22 +1,10 @@
 version: '3'
 
 services:
-  minio:
-    container_name: minio
-    image: quay.io/minio/minio
-    volumes:
-      - ~/minio_data:/data
-    command: "server /data --console-address ':9001'"
-    ports:
-      - "9000:9000"
-      - "9001:9001"
   fibraclick-upload-server:
     container_name: fibraclick-upload-server
     build:
       context: .
-      dockerfile: Dockerfile
     ports:
       - "8080:8080"
-    volumes:
-      - ./tmp:/tmp
     env_file: ".env"
