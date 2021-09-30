@@ -1,0 +1,31 @@
+
+version: v1.0
+
+name: Main
+
+agent:
+  machine:
+    type: e1-standard-2
+    os_image: ubuntu2004
+
+execution_time_limit:
+  minutes: 3
+
+auto_cancel:
+  running:
+    when: 'true'
+
+blocks:
+  - name: Dockerize (dry-run)
+    task:
+      prologue:
+        commands:
+          - checkout
+      jobs:
+        - name: Build
+          commands:
+            - docker build .
+
+promotions:
+  - name: Deploy
+    pipeline_file: deploy.yml

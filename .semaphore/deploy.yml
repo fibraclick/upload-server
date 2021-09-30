@@ -1,0 +1,51 @@
+version: v1.0
+
+name: Deploy
+
+agent:
+  machine:
+    type: e1-standard-2
+    os_image: ubuntu2004
+
+execution_time_limit:
+  minutes: 3
+
+blocks:
+  - name: Dockerize
+    task:
+      secrets:
+        - name: aws_ecr
+        - name: fibraclick
+      prologue:
+        commands:
+          - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+
+          - checkout
+      jobs:
+        - name: Dockerize
+          commands:
+            - export REPOSITORY="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+
+            - docker build -t "$REPOSITORY/$UPLOAD_SERVER:$SEMAPHORE_GIT_SHA" -f Dockerfile .
+            - docker images
+            - docker push "$REPOSITORY/$UPLOAD_SERVER:$SEMAPHORE_GIT_SHA"
+
+  - name: storage1@hetzner
+    task:
+      secrets:
+        - name: fibraclick
+        - name: storage1@hetzner
+        - name: aws_ecr
+      prologue:
+        commands:
+          - chmod 0600 ~/.keys/*
+          - ssh-add ~/.keys/*
+
+          - checkout
+      jobs:
+        - name: SSH
+          commands:
+            - export DOCKER_REGISTRY_NAME="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+            - export DOCKER_REGISTRY_TOKEN="$(aws ecr get-login-password --region $AWS_REGION)"
+
+            - ssh deploy@$IP DOCKER_REGISTRY_TOKEN=$DOCKER_REGISTRY_TOKEN DOCKER_REGISTRY_NAME=$DOCKER_REGISTRY_NAME DOCKER_TAG=$SEMAPHORE_GIT_SHA CONTAINER_NAME=$UPLOAD_SERVER 'bash -s' < .semaphore/deploy.sh DOCKER_TAG=$SEMAPHORE_GIT_SHA CONTAINER_NAME=$SOCIAL 'bash -s' < .semaphore/deploy.sh
